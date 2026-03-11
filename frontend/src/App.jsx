@@ -911,7 +911,7 @@ function App() {
   const [barcodeError, setBarcodeError] = useState("");
   const [barcodeCopied, setBarcodeCopied] = useState(false);
 
-  const maxUploadSizeMb = health?.maxUploadSizeMb ?? 200;
+  const maxUploadSizeMb = health?.maxUploadSizeMb ?? 4;
   const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024;
   const supportsDirectUpload = Boolean(health?.capabilities?.directUpload);
   const minExpiry = health?.minExpirySeconds ?? 31;

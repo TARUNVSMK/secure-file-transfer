@@ -57,7 +57,7 @@ export const apiConfig = {
   publicApiBaseUrl: (process.env.PUBLIC_API_BASE_URL ?? "").replace(/\/+$/, ""),
   mongoUri: (process.env.MONGO_URI ?? "").trim(),
   deleteToken: (process.env.DELETE_TOKEN ?? "").trim(),
-  maxUploadSizeMb: clamp(parseNumber(process.env.MAX_UPLOAD_SIZE_MB, 200), 1, 2048),
+  maxUploadSizeMb: clamp(parseNumber(process.env.MAX_UPLOAD_SIZE_MB, 4), 1, 2048),
   minExpirySeconds: 31,
   maxExpirySeconds: 86399,
   defaultExpirySeconds: 0,

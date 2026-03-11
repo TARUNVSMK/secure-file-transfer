@@ -11,7 +11,7 @@ The upload flow encrypts files with AES-256-GCM, creates expiring share links, a
 ## Highlights
 
 - Encrypted file sharing with expiring download links
-- File uploads must stay below `200 MB`
+- File uploads must stay below `4 MB`
 - Automatic expiry cleanup for shared files
 - QR code generator with color, shape, logo, and export controls
 - Barcode generator with multiple formats and export actions
@@ -68,7 +68,7 @@ R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 R2_BUCKET_NAME=secure-file-transfer
 R2_REGION=auto
 DELETE_TOKEN=change-me
-MAX_UPLOAD_SIZE_MB=200
+MAX_UPLOAD_SIZE_MB=4
 DEFAULT_EXPIRY_SECONDS=3600
 ALLOW_LOCAL_FALLBACK=true
 CLEANUP_INTERVAL_SECONDS=60
@@ -81,7 +81,7 @@ UPLOAD_RATE_LIMIT_MAX=50
 Notes:
 
 - `DELETE_TOKEN` is optional.
-- The upload rule is currently "file must be smaller than 200 MB".
+- The upload rule is currently "file must be smaller than 4 MB".
 - If Atlas and R2 are missing locally and `ALLOW_LOCAL_FALLBACK=true`, the app uses SQLite plus local encrypted storage.
 
 ### 3. Configure the frontend
@@ -116,7 +116,7 @@ This starts:
 
 ### Upload Limits
 
-- Upload size must be strictly below `200 MB`
+- Upload size must be strictly below `4 MB`
 - Default upload rate limit is `50` uploads per `15 minutes`
 
 ### QR Generator
