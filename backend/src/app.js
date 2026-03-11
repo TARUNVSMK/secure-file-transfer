@@ -54,6 +54,10 @@ app.get("/api/health", (_request, response) => {
     defaultExpirySeconds: apiConfig.defaultExpirySeconds,
     cleanupIntervalSeconds: apiConfig.cleanupIntervalSeconds,
     allowLocalFallback: apiConfig.allowLocalFallback,
+    capabilities: {
+      directUpload: false,
+      browserDecryption: false,
+    },
   });
 });
 

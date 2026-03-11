@@ -2,9 +2,27 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
-const currentFilePath = fileURLToPath(import.meta.url);
-const currentDirectory = path.dirname(currentFilePath);
-const backendRoot = path.resolve(currentDirectory, "..");
+const getBackendRoot = () => {
+  const currentWorkingDirectory = process.cwd();
+  const backendRootFromCwd =
+    path.basename(currentWorkingDirectory).toLowerCase() === "backend"
+      ? currentWorkingDirectory
+      : path.join(currentWorkingDirectory, "backend");
+
+  try {
+    if (typeof import.meta.url === "string") {
+      const currentFilePath = fileURLToPath(import.meta.url);
+      const currentDirectory = path.dirname(currentFilePath);
+      return path.resolve(currentDirectory, "..");
+    }
+  } catch {
+    // Netlify can bundle this file into CommonJS for functions, where import.meta.url is unavailable.
+  }
+
+  return backendRootFromCwd;
+};
+
+const backendRoot = getBackendRoot();
 
 dotenv.config({ path: path.join(backendRoot, ".env"), quiet: true });
 

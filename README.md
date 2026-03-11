@@ -6,7 +6,7 @@ Secure File Transfer is a full-stack file sharing app with three tools in one in
 - styled QR code generation
 - barcode generation
 
-The upload flow encrypts files with AES-256-GCM before storage, creates expiring share links, and removes expired files automatically. The frontend is built with React and Vite, and the backend runs on Node.js and Express.
+The upload flow encrypts files with AES-256-GCM, creates expiring share links, and removes expired files automatically. The frontend is built with React and Vite, and the production backend now runs through Netlify Functions with MongoDB Atlas and Cloudflare R2.
 
 ## Highlights
 
@@ -16,16 +16,17 @@ The upload flow encrypts files with AES-256-GCM before storage, creates expiring
 - QR code generator with color, shape, logo, and export controls
 - Barcode generator with multiple formats and export actions
 - Local fallback mode for development when cloud services are not configured
+- Netlify-only production hosting with direct R2 uploads and browser-side decryption
 
 ## Stack
 
 | Layer | Technology |
 | --- | --- |
 | Frontend | React 19, Vite 7, Tailwind CSS, shadcn-style UI |
-| Backend | Node.js 24+, Express 5, Multer |
+| Backend | Node.js 24+, Express 5 for local dev, Netlify Functions in production |
 | Database | MongoDB Atlas in cloud mode, SQLite in local fallback mode |
 | Object Storage | Cloudflare R2 in cloud mode, local filesystem in fallback mode |
-| Hosting | Netlify for frontend, Render for backend |
+| Hosting | Netlify for frontend and production API |
 
 ## Project Structure
 
@@ -107,9 +108,10 @@ This starts:
 ### Secure File Sharing
 
 - A user uploads one file at a time
-- The file is encrypted before storage
+- On Netlify, the file is encrypted in the browser before direct upload to Cloudflare R2
+- On the local Express backend, the server encrypts the uploaded file before storage
 - Only file metadata is stored in the database
-- A share token and download URL are returned
+- A share token and download flow are returned
 - Expired transfers are cleaned up automatically
 
 ### Upload Limits
@@ -141,22 +143,25 @@ This starts:
 
 Returns runtime status and configuration summary.
 
+### `POST /api/files/upload/init`
+
+Creates a signed direct-upload URL for production Netlify uploads.
+
+### `POST /api/files/upload/complete`
+
+Finalizes a production upload after the encrypted file reaches R2.
+
 ### `POST /api/files/upload`
 
-Multipart upload.
-
-Fields:
-
-- `file`
-- `expirySeconds`
+Multipart upload used by the local Express backend.
 
 ### `GET /api/files/:shareToken`
 
 Returns transfer metadata.
 
-### `GET /api/files/:shareToken/download`
+### `POST /api/files/:shareToken/downloaded`
 
-Streams the decrypted file to the user.
+Records a completed client-side download in Netlify production mode.
 
 ### `DELETE /api/files/:shareToken`
 
@@ -167,30 +172,21 @@ Deletes a transfer immediately. If `DELETE_TOKEN` is set, send it through:
 
 ## Deployment
 
-### Recommended Free Stack
+### Recommended Stack
 
 - Frontend: Netlify
-- Backend: Render
-- Database: MongoDB Atlas free tier
-- Storage: Cloudflare R2 free tier
+- Backend API: Netlify Functions
+- Database: MongoDB Atlas
+- Storage: Cloudflare R2
 
-### Netlify Frontend
+### Netlify Production
 
 This repo already includes [netlify.toml](./netlify.toml).
 
-- Base directory: `frontend`
 - Build command: `npm run build`
-- Publish directory: `dist`
-- Required env var: `VITE_API_BASE_URL=https://your-backend-url`
-
-### Render Backend
-
-This repo already includes [render.yaml](./render.yaml).
-
-- Root directory: `backend`
-- Build command: `npm install`
-- Start command: `npm run start`
-- Health check path: `/api/health`
+- Publish directory: `frontend/dist`
+- Functions directory: `netlify/functions`
+- Production site can use same-origin `/api/*` calls, so `VITE_API_BASE_URL` is optional
 
 Required production env vars:
 
@@ -201,10 +197,10 @@ Required production env vars:
 - `R2_ACCESS_KEY_ID`
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET_NAME`
+- `R2_REGION`
+- `DELETE_TOKEN`
 
-### Why Not Netlify-Only for File Sharing
-
-The frontend works great on Netlify, but the secure file sharing backend is a long-running Express API with upload handling and cleanup logic. Keeping full file-sharing behavior is much more reliable with a dedicated backend host.
+R2 bucket CORS must allow your Netlify site origin for `GET`, `HEAD`, and `PUT`.
 
 ## Verification
 

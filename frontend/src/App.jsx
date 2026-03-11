@@ -4,6 +4,7 @@ import QRCodeStyling from "qr-code-styling";
 import { ColorPickerField } from "@/components/ui/color-picker-field";
 import { SpiralDemo } from "@/components/ui/demo";
 import { Waves } from "@/components/ui/wave-background";
+import { decryptFileInBrowser, encryptFileInBrowser } from "@/lib/browser-file-crypto";
 
 const QrToolLogo = ({ className }) => (
   <svg
@@ -633,6 +634,8 @@ function SharePage({ apiBaseUrl, shareToken }) {
   const [transfer, setTransfer] = useState(null);
   const [status, setStatus] = useState("loading");
   const [errorMessage, setErrorMessage] = useState("");
+  const [downloadError, setDownloadError] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(null);
 
   useEffect(() => {
@@ -652,6 +655,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
 
         if (!active) return;
         setTransfer(payload);
+        setDownloadError("");
         setStatus("ready");
       } catch (error) {
         if (!active) return;
@@ -683,6 +687,55 @@ function SharePage({ apiBaseUrl, shareToken }) {
   }, [transfer?.expiresAt]);
 
   const transferExpired = status === "ready" && remainingSeconds !== null && remainingSeconds <= 0;
+  const usesBrowserDecryption = Boolean(
+    transfer?.deliveryMode === "client-decrypt" &&
+      transfer?.encryptedDownloadUrl &&
+      transfer?.encryptionKey,
+  );
+
+  const handleDownload = async () => {
+    if (!transfer || transferExpired) {
+      return;
+    }
+
+    if (!usesBrowserDecryption) {
+      window.open(transfer.downloadLink, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    setIsDownloading(true);
+    setDownloadError("");
+
+    try {
+      const metadataResponse = await fetch(`${apiBaseUrl}/api/files/${shareToken}`);
+      const metadata = await metadataResponse.json().catch(() => ({}));
+
+      if (!metadataResponse.ok) {
+        throw new Error(metadata.message ?? "This file is unavailable.");
+      }
+
+      setTransfer(metadata);
+
+      const downloadResponse = await fetch(metadata.encryptedDownloadUrl);
+      if (!downloadResponse.ok) {
+        throw new Error("Encrypted file download failed.");
+      }
+
+      const encryptedBlob = await downloadResponse.blob();
+      const decryptedBlob = await decryptFileInBrowser(
+        encryptedBlob,
+        metadata.encryptionKey,
+        metadata.contentType,
+      );
+
+      downloadBlob(decryptedBlob, metadata.filename);
+      fetch(`${apiBaseUrl}/api/files/${shareToken}/downloaded`, { method: "POST" }).catch(() => undefined);
+    } catch (error) {
+      setDownloadError(error.message || "Download failed.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <section className="share-page">
@@ -699,7 +752,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
                   : "File ready to download"}
           </h1>
           <p className="share-subtitle">
-            Open the file details below, then download it in a new tab.
+            Open the file details below, then download the file securely.
           </p>
         </div>
 
@@ -764,14 +817,19 @@ function SharePage({ apiBaseUrl, shareToken }) {
                   Link expired
                 </span>
               ) : (
-                <a className="primary-button" href={transfer.downloadLink} target="_blank" rel="noreferrer">
-                  Download file
-                </a>
+                <button className="primary-button" type="button" onClick={handleDownload} disabled={isDownloading}>
+                  {isDownloading
+                    ? usesBrowserDecryption
+                      ? "Decrypting and downloading..."
+                      : "Opening download..."
+                    : "Download file"}
+                </button>
               )}
               <a className="secondary-button" href="#works">
                 Open secure tools
               </a>
             </div>
+            {downloadError ? <p className="error-banner">{downloadError}</p> : null}
           </>
         ) : null}
       </div>
@@ -855,6 +913,7 @@ function App() {
 
   const maxUploadSizeMb = health?.maxUploadSizeMb ?? 200;
   const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024;
+  const supportsDirectUpload = Boolean(health?.capabilities?.directUpload);
   const minExpiry = health?.minExpirySeconds ?? 31;
   const maxExpiry = health?.maxExpirySeconds ?? 86399;
   const expiryValid =
@@ -892,7 +951,7 @@ function App() {
           ? Math.min(Math.max(defaultExpiry, nextMin), nextMax)
           : 3600;
         setExpirySeconds((current) =>
-          current > 0 ? Math.min(Math.max(current, nextMin), nextMax) : 0,
+          current > 0 ? Math.min(Math.max(current, nextMin), nextMax) : normalizedExpiry,
         );
       } catch {
         setHealth({ status: "offline", runtimeMode: "offline", cleanupIntervalSeconds: 60 });
@@ -1138,6 +1197,62 @@ function App() {
     setIsUploading(true);
     setUploadError("");
     try {
+      if (supportsDirectUpload) {
+        const initResponse = await fetch(`${apiBaseUrl}/api/files/upload/init`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            filename: selectedFile.name,
+            contentType: selectedFile.type || "application/octet-stream",
+            fileSize: selectedFile.size,
+            expirySeconds,
+          }),
+        });
+        const initPayload = await initResponse.json().catch(() => ({}));
+        if (!initResponse.ok) {
+          throw new Error(initPayload.message ?? "Upload initialization failed.");
+        }
+
+        const { encryptedBlob, encryptedSize, encryptionKey } = await encryptFileInBrowser(selectedFile);
+
+        const directUploadResponse = await fetch(initPayload.uploadUrl, {
+          method: "PUT",
+          headers: {
+            "content-type": "application/octet-stream",
+          },
+          body: encryptedBlob,
+        });
+
+        if (!directUploadResponse.ok) {
+          throw new Error("Direct file upload failed.");
+        }
+
+        const completeResponse = await fetch(`${apiBaseUrl}/api/files/upload/complete`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            shareToken: initPayload.shareToken,
+            objectKey: initPayload.objectKey,
+            filename: initPayload.filename,
+            contentType: initPayload.contentType,
+            fileSize: selectedFile.size,
+            encryptedSize,
+            encryptionKey,
+            expirySeconds,
+          }),
+        });
+        const completePayload = await completeResponse.json().catch(() => ({}));
+        if (!completeResponse.ok) {
+          throw new Error(completePayload.message ?? "Upload completion failed.");
+        }
+        setResult(completePayload);
+        return;
+      }
+
       const formData = new FormData();
       formData.append("file", selectedFile);
       formData.append("expirySeconds", String(expirySeconds));
@@ -1322,9 +1437,15 @@ function App() {
                 onDragLeave={() => setDragging(false)}
                 onDrop={(event) => { event.preventDefault(); setDragging(false); onFilesSelected(event.dataTransfer.files); }}
               >
-                <span className="dropzone-badge">Encrypted on upload</span>
+                <span className="dropzone-badge">{supportsDirectUpload ? "Encrypted in browser" : "Encrypted on upload"}</span>
                 <strong>{selectedFile ? selectedFile.name : "Drop a file or click to browse"}</strong>
-                <span>{selectedFile ? `${formatBytes(selectedFile.size)} selected` : `Files under ${maxUploadSizeMb} MB stay encrypted until they expire.`}</span>
+                <span>
+                  {selectedFile
+                    ? `${formatBytes(selectedFile.size)} selected`
+                    : supportsDirectUpload
+                      ? `Files under ${maxUploadSizeMb} MB are encrypted in your browser, then uploaded securely.`
+                      : `Files under ${maxUploadSizeMb} MB stay encrypted until they expire.`}
+                </span>
               </button>
               <input ref={fileInputRef} type="file" hidden onChange={(event) => onFilesSelected(event.target.files)} />
               <div className="field timer-field">
@@ -1366,7 +1487,13 @@ function App() {
               <p className="field-hint">Allowed range: {formatTimerValue(minExpiry)} to {formatTimerValue(maxExpiry)} ({minExpiry} to {maxExpiry} seconds).</p>
               {!expiryValid ? <p className="warning-banner">Lifetime must stay inside the allowed range.</p> : null}
               {uploadError ? <p className="error-banner">{uploadError}</p> : null}
-              <button className="primary-button" type="submit" disabled={isUploading}>{isUploading ? "Encrypting and uploading..." : "Generate secure link"}</button>
+              <button className="primary-button" type="submit" disabled={isUploading}>
+                {isUploading
+                  ? supportsDirectUpload
+                    ? "Encrypting in browser and uploading..."
+                    : "Encrypting and uploading..."
+                  : "Generate secure link"}
+              </button>
             </form>
             <section className="panel preview-panel preview-panel-dark">
               <div className="panel-heading"><p className="panel-kicker">Result</p><h2>{result ? "Link ready to share" : "Waiting for upload"}</h2></div>

@@ -1,11 +1,12 @@
 import { createReadStream } from "node:fs";
-import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { apiConfig } from "../config.js";
 
 let client = null;
 
-const getClient = () => {
+export const getClient = () => {
   if (!client) {
     client = new S3Client({
       region: apiConfig.r2.region,
@@ -19,6 +20,8 @@ const getClient = () => {
 
   return client;
 };
+
+const SIGNED_URL_TTL_SECONDS = 60 * 15;
 
 export const uploadEncryptedFile = async (filePath, objectKey) => {
   const upload = new Upload({
@@ -57,3 +60,24 @@ export const deleteObject = async (objectKey) => {
     }),
   );
 };
+
+export const getSignedUploadUrl = async (objectKey, expiresIn = SIGNED_URL_TTL_SECONDS) =>
+  getSignedUrl(
+    getClient(),
+    new PutObjectCommand({
+      Bucket: apiConfig.r2.bucketName,
+      Key: objectKey,
+      ContentType: "application/octet-stream",
+    }),
+    { expiresIn },
+  );
+
+export const getSignedDownloadUrl = async (objectKey, expiresIn = SIGNED_URL_TTL_SECONDS) =>
+  getSignedUrl(
+    getClient(),
+    new GetObjectCommand({
+      Bucket: apiConfig.r2.bucketName,
+      Key: objectKey,
+    }),
+    { expiresIn },
+  );

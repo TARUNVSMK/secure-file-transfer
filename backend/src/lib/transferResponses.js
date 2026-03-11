@@ -1,8 +1,6 @@
 import { resolvePublicApiBaseUrl } from "../config.js";
 
-export const toTransferResponse = (request, transfer) => {
-  const apiBaseUrl = resolvePublicApiBaseUrl(request);
-
+export const serializeTransferResponse = (transfer, apiBaseUrl, extraFields = {}) => {
   return {
     id: transfer._id,
     shareToken: transfer.shareToken,
@@ -15,5 +13,11 @@ export const toTransferResponse = (request, transfer) => {
     createdAt: transfer.createdAt,
     downloadLink: `${apiBaseUrl}/api/files/${transfer.shareToken}/download`,
     deleteEndpoint: `${apiBaseUrl}/api/files/${transfer.shareToken}`,
+    ...extraFields,
   };
+};
+
+export const toTransferResponse = (request, transfer, extraFields = {}) => {
+  const apiBaseUrl = resolvePublicApiBaseUrl(request);
+  return serializeTransferResponse(transfer, apiBaseUrl, extraFields);
 };
