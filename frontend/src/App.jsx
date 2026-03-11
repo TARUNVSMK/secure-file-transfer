@@ -780,7 +780,10 @@ function SharePage({ apiBaseUrl, shareToken }) {
 }
 
 function App() {
-  const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000").replace(/\/+$/, "");
+  const apiBaseUrl = (
+    import.meta.env.VITE_API_BASE_URL ??
+    (import.meta.env.DEV ? "http://localhost:5000" : "")
+  ).replace(/\/+$/, "");
   const fileInputRef = useRef(null);
   const secureQrPreviewRef = useRef(null);
   const qrPreviewRef = useRef(null);
