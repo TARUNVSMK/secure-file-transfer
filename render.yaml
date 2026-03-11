@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: secure-file-transfer-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: NODE_ENV
+        value: production
+      - key: ALLOW_LOCAL_FALLBACK
+        value: "false"
+      - key: R2_REGION
+        value: auto
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "200"
+      - key: DEFAULT_EXPIRY_SECONDS
+        value: "3600"
+      - key: CLEANUP_INTERVAL_SECONDS
+        value: "60"
+      - key: API_RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: API_RATE_LIMIT_MAX
+        value: "300"
+      - key: UPLOAD_RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: UPLOAD_RATE_LIMIT_MAX
+        value: "50"
+      - key: CLIENT_URL
+        sync: false
+      - key: PUBLIC_API_BASE_URL
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: DELETE_TOKEN
+        generateValue: true
