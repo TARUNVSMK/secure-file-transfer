@@ -559,6 +559,84 @@ const buildShareLink = (shareToken) => {
   return url.toString();
 };
 
+const getAppApiBaseUrl = () => {
+  if (typeof window === "undefined") {
+    return (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+  }
+
+  if (import.meta.env.DEV) {
+    return (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000").replace(/\/+$/, "");
+  }
+
+  // Netlify production serves the SPA and functions from the same origin.
+  return window.location.origin.replace(/\/+$/, "");
+};
+
+const isFailedToFetchError = (error) =>
+  error instanceof TypeError && /failed to fetch/i.test(error.message || "");
+
+const getFriendlyTransferError = (error, fallbackMessage) =>
+  isFailedToFetchError(error)
+    ? fallbackMessage
+    : error?.message || fallbackMessage;
+
+const getFriendlyUploadError = (error, stage) => {
+  if (stage === "init") {
+    return getFriendlyTransferError(
+      error,
+      "Could not reach the secure upload service. Refresh the page and try again.",
+    );
+  }
+
+  if (stage === "direct-upload") {
+    return getFriendlyTransferError(
+      error,
+      "The encrypted upload could not reach storage. Refresh and try again. If it keeps failing, the browser or bucket CORS is blocking the request.",
+    );
+  }
+
+  if (stage === "encrypt") {
+    return getFriendlyTransferError(
+      error,
+      "This browser could not encrypt the file before upload. Refresh and try again.",
+    );
+  }
+
+  if (stage === "complete") {
+    return getFriendlyTransferError(
+      error,
+      "The file uploaded, but the secure link could not be finalized. Try again in a moment.",
+    );
+  }
+
+  return getFriendlyTransferError(error, "Upload failed.");
+};
+
+const getFriendlyDownloadError = (error, stage) => {
+  if (stage === "metadata") {
+    return getFriendlyTransferError(
+      error,
+      "Could not load the secure file details. Refresh the page and try again.",
+    );
+  }
+
+  if (stage === "encrypted-download") {
+    return getFriendlyTransferError(
+      error,
+      "The encrypted file could not be fetched from storage. Refresh and try again.",
+    );
+  }
+
+  if (stage === "decrypt") {
+    return getFriendlyTransferError(
+      error,
+      "The encrypted file was downloaded, but your browser could not decrypt it.",
+    );
+  }
+
+  return getFriendlyTransferError(error, "Download failed.");
+};
+
 function DropdownSelect({ label, value, options, onChange, formatValue = (option) => option }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
@@ -644,6 +722,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
     const loadTransfer = async () => {
       setStatus("loading");
       setErrorMessage("");
+      let metadataStage = "metadata";
 
       try {
         const response = await fetch(`${apiBaseUrl}/api/files/${shareToken}`);
@@ -661,7 +740,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
         if (!active) return;
         setTransfer(null);
         setStatus("error");
-        setErrorMessage(error.message || "This file is unavailable.");
+        setErrorMessage(getFriendlyDownloadError(error, metadataStage));
       }
     };
 
@@ -705,6 +784,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
 
     setIsDownloading(true);
     setDownloadError("");
+    let downloadStage = "metadata";
 
     try {
       const metadataResponse = await fetch(`${apiBaseUrl}/api/files/${shareToken}`);
@@ -716,12 +796,14 @@ function SharePage({ apiBaseUrl, shareToken }) {
 
       setTransfer(metadata);
 
+      downloadStage = "encrypted-download";
       const downloadResponse = await fetch(metadata.encryptedDownloadUrl);
       if (!downloadResponse.ok) {
         throw new Error("Encrypted file download failed.");
       }
 
       const encryptedBlob = await downloadResponse.blob();
+      downloadStage = "decrypt";
       const decryptedBlob = await decryptFileInBrowser(
         encryptedBlob,
         metadata.encryptionKey,
@@ -731,7 +813,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
       downloadBlob(decryptedBlob, metadata.filename);
       fetch(`${apiBaseUrl}/api/files/${shareToken}/downloaded`, { method: "POST" }).catch(() => undefined);
     } catch (error) {
-      setDownloadError(error.message || "Download failed.");
+      setDownloadError(getFriendlyDownloadError(error, downloadStage));
     } finally {
       setIsDownloading(false);
     }
@@ -838,10 +920,7 @@ function SharePage({ apiBaseUrl, shareToken }) {
 }
 
 function App() {
-  const apiBaseUrl = (
-    import.meta.env.VITE_API_BASE_URL ??
-    (import.meta.env.DEV ? "http://localhost:5000" : "")
-  ).replace(/\/+$/, "");
+  const apiBaseUrl = getAppApiBaseUrl();
   const fileInputRef = useRef(null);
   const secureQrPreviewRef = useRef(null);
   const qrPreviewRef = useRef(null);
@@ -1196,6 +1275,7 @@ function App() {
 
     setIsUploading(true);
     setUploadError("");
+    let uploadStage = "init";
     try {
       if (supportsDirectUpload) {
         const initResponse = await fetch(`${apiBaseUrl}/api/files/upload/init`, {
@@ -1215,8 +1295,10 @@ function App() {
           throw new Error(initPayload.message ?? "Upload initialization failed.");
         }
 
+        uploadStage = "encrypt";
         const { encryptedBlob, encryptedSize, encryptionKey } = await encryptFileInBrowser(selectedFile);
 
+        uploadStage = "direct-upload";
         const directUploadResponse = await fetch(initPayload.uploadUrl, {
           method: "PUT",
           headers: {
@@ -1229,6 +1311,7 @@ function App() {
           throw new Error("Direct file upload failed.");
         }
 
+        uploadStage = "complete";
         const completeResponse = await fetch(`${apiBaseUrl}/api/files/upload/complete`, {
           method: "POST",
           headers: {
@@ -1261,7 +1344,7 @@ function App() {
       if (!response.ok) throw new Error(payload.message ?? "Upload failed.");
       setResult(payload);
     } catch (error) {
-      setUploadError(error.message);
+      setUploadError(getFriendlyUploadError(error, uploadStage));
     } finally {
       setIsUploading(false);
     }
