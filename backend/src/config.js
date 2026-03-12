@@ -66,6 +66,10 @@ export const apiConfig = {
   apiRateLimitMax: clamp(parseNumber(process.env.API_RATE_LIMIT_MAX, 300), 1, 100000),
   uploadRateLimitWindowMs: clamp(parseNumber(process.env.UPLOAD_RATE_LIMIT_WINDOW_MS, 900000), 1000, 86400000),
   uploadRateLimitMax: clamp(parseNumber(process.env.UPLOAD_RATE_LIMIT_MAX, 50), 1, 100000),
+  uploadQuotaWindowMs: clamp(parseNumber(process.env.UPLOADS_PER_IP_WINDOW_MS, 600000), 1000, 86400000),
+  uploadQuotaMaxPerIp: clamp(parseNumber(process.env.UPLOADS_PER_IP_WINDOW_MAX, 5), 1, 100000),
+  concurrentUploadLimitPerIp: clamp(parseNumber(process.env.CONCURRENT_UPLOAD_LIMIT_PER_IP, 2), 1, 20),
+  concurrentUploadCooldownMs: clamp(parseNumber(process.env.CONCURRENT_UPLOAD_COOLDOWN_MS, 60000), 1000, 3600000),
   allowLocalFallback: parseBoolean(process.env.ALLOW_LOCAL_FALLBACK, (process.env.NODE_ENV ?? "development") !== "production"),
   backendRoot,
   tempDirectory: path.join(backendRoot, "tmp"),
@@ -84,7 +88,7 @@ export const apiConfig = {
 };
 
 apiConfig.defaultExpirySeconds = clamp(
-  parseNumber(process.env.DEFAULT_EXPIRY_SECONDS, 3600),
+  parseNumber(process.env.DEFAULT_EXPIRY_SECONDS, apiConfig.minExpirySeconds),
   apiConfig.minExpirySeconds,
   apiConfig.maxExpirySeconds,
 );

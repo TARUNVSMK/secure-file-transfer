@@ -1025,10 +1025,10 @@ function App() {
         setHealth(payload);
         const nextMin = payload.minExpirySeconds ?? 31;
         const nextMax = payload.maxExpirySeconds ?? 86399;
-        const defaultExpiry = Number(payload.defaultExpirySeconds ?? 3600);
+        const defaultExpiry = Number(payload.defaultExpirySeconds ?? 31);
         const normalizedExpiry = Number.isFinite(defaultExpiry)
           ? Math.min(Math.max(defaultExpiry, nextMin), nextMax)
-          : 3600;
+          : 31;
         setExpirySeconds((current) =>
           current > 0 ? Math.min(Math.max(current, nextMin), nextMax) : normalizedExpiry,
         );
@@ -1461,6 +1461,22 @@ function App() {
     }
   };
 
+  const handleSecureQrDownload = async () => {
+    if (!result?.downloadLink) return;
+
+    try {
+      const svgElement = secureQrPreviewRef.current?.querySelector("svg");
+      const blob = await svgElementToPngBlob(svgElement, 1200, {
+        backgroundColor: "#ffffff",
+        padding: 96,
+      });
+      downloadBlob(blob, `secure-link-${result.shareToken || "qr"}.png`);
+      setUploadError("");
+    } catch (error) {
+      setUploadError(error.message || "QR download failed.");
+    }
+  };
+
   const handleBarcodeCopyImage = async () => {
     if (!barcodeMarkup) return;
     try {
@@ -1502,7 +1518,7 @@ function App() {
                 <button key={item.id} className={`tab-button ${tab === item.id ? "is-active" : ""}`} type="button" onClick={() => setTab(item.id)}>
                   <span className="tab-button__content">
                     {renderToolTabLogo(item.id, "tab-button__icon")}
-                    <span>{item.label}</span>
+                    <span className="tab-button__label">{item.label}</span>
                   </span>
                 </button>
               ))}
@@ -1615,6 +1631,11 @@ function App() {
                       <span className="secondary-button button-disabled" aria-disabled="true">Copy QR unavailable</span>
                     ) : (
                       <button className="secondary-button" type="button" onClick={handleSecureQrCopyImage}>{secureQrCopied ? "QR copied" : "Copy QR"}</button>
+                    )}
+                    {resultExpired ? (
+                      <span className="secondary-button button-disabled" aria-disabled="true">Download QR unavailable</span>
+                    ) : (
+                      <button className="secondary-button" type="button" onClick={handleSecureQrDownload}>Download QR</button>
                     )}
                   </div>
                   <code className="link-preview">{shareLink}</code>

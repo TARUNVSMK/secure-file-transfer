@@ -12,6 +12,10 @@ import {
   recordTransferDownload,
 } from "../../backend/src/repositories/transferRepository.js";
 import { purgeExpiredTransfer } from "../../backend/src/services/expiredTransferCleanup.js";
+import {
+  ensureUploadQuotaAvailable,
+  reserveUploadQuotaSlot,
+} from "../../backend/src/services/uploadQuota.js";
 import { getStorageBackendLabel, removeStoredObject } from "../../backend/src/services/runtimeStorage.js";
 
 const JSON_HEADERS = {
@@ -88,6 +92,13 @@ const parseJsonBody = async (request) => {
 const getApiBaseUrl = (request) =>
   (apiConfig.publicApiBaseUrl || new URL(request.url).origin).replace(/\/+$/, "");
 
+const getRequestIp = (request) =>
+  request.headers.get("x-nf-client-connection-ip") ||
+  request.headers.get("cf-connecting-ip") ||
+  request.headers.get("x-forwarded-for") ||
+  request.headers.get("x-real-ip") ||
+  "unknown";
+
 const createHealthPayload = () => {
   const runtimeMode = getRuntimeMode();
   const cloudConfigMissing = getCloudConfigMissing();
@@ -104,10 +115,13 @@ const createHealthPayload = () => {
     maxExpirySeconds: apiConfig.maxExpirySeconds,
     defaultExpirySeconds: apiConfig.defaultExpirySeconds,
     cleanupIntervalSeconds: apiConfig.cleanupIntervalSeconds,
+    uploadQuotaWindowMs: apiConfig.uploadQuotaWindowMs,
+    uploadQuotaMaxPerIp: apiConfig.uploadQuotaMaxPerIp,
     allowLocalFallback: false,
     capabilities: {
       directUpload: true,
       browserDecryption: true,
+      uploadQuotaProtection: true,
     },
   };
 };
@@ -118,6 +132,7 @@ const handleHealth = async () =>
 const handleUploadInit = async (request) => {
   assertCloudRuntimeReady();
   await ensureTransferStoreReady();
+  ensureUploadQuotaAvailable(getRequestIp(request));
 
   const body = await parseJsonBody(request);
   const filename = sanitizeFilename(body.filename);
@@ -164,61 +179,69 @@ const handleUploadInit = async (request) => {
 const handleUploadComplete = async (request) => {
   assertCloudRuntimeReady();
   await ensureTransferStoreReady();
+  const quotaReservation = reserveUploadQuotaSlot(getRequestIp(request));
 
-  const body = await parseJsonBody(request);
-  const shareToken = String(body.shareToken ?? "").trim();
-  const objectKey = String(body.objectKey ?? "").trim();
-  const originalFilename = sanitizeFilename(body.filename);
-  const contentType = String(body.contentType || "application/octet-stream").trim();
-  const encryptionKey = String(body.encryptionKey ?? "").trim();
-  const fileSize = Number.parseInt(body.fileSize ?? "", 10);
-  const encryptedSize = Number.parseInt(body.encryptedSize ?? "", 10);
-  const expirySeconds = parseExpirySeconds(body.expirySeconds);
+  try {
+    const body = await parseJsonBody(request);
+    const shareToken = String(body.shareToken ?? "").trim();
+    const objectKey = String(body.objectKey ?? "").trim();
+    const originalFilename = sanitizeFilename(body.filename);
+    const contentType = String(body.contentType || "application/octet-stream").trim();
+    const encryptionKey = String(body.encryptionKey ?? "").trim();
+    const fileSize = Number.parseInt(body.fileSize ?? "", 10);
+    const encryptedSize = Number.parseInt(body.encryptedSize ?? "", 10);
+    const expirySeconds = parseExpirySeconds(body.expirySeconds);
 
-  if (!shareToken || !objectKey || !originalFilename || !encryptionKey) {
-    throw new HttpError(400, "Missing required upload metadata.");
+    if (!shareToken || !objectKey || !originalFilename || !encryptionKey) {
+      throw new HttpError(400, "Missing required upload metadata.");
+    }
+
+    if (!Number.isFinite(fileSize) || fileSize <= 0) {
+      throw new HttpError(400, "File size must be greater than 0 bytes.");
+    }
+
+    if (fileSize >= getUploadLimitBytes()) {
+      throw new HttpError(413, `File must be smaller than ${apiConfig.maxUploadSizeMb} MB.`);
+    }
+
+    if (!Number.isFinite(encryptedSize) || encryptedSize <= 0) {
+      throw new HttpError(400, "Encrypted file size must be greater than 0 bytes.");
+    }
+
+    if (
+      expirySeconds < apiConfig.minExpirySeconds ||
+      expirySeconds > apiConfig.maxExpirySeconds
+    ) {
+      throw new HttpError(
+        400,
+        `Expiry must be between ${apiConfig.minExpirySeconds} and ${apiConfig.maxExpirySeconds} seconds.`,
+      );
+    }
+
+    const expiresAt = new Date(Date.now() + expirySeconds * 1000);
+    const transfer = await createTransferRecord({
+      shareToken,
+      objectKey,
+      originalFilename,
+      contentType,
+      encryptionKey,
+      fileSize,
+      encryptedSize,
+      expiresAt,
+    });
+
+    quotaReservation.commit();
+
+    return json({
+      ...serializeTransferResponse(transfer, getApiBaseUrl(request), {
+        deliveryMode: "client-decrypt",
+      }),
+      expirySeconds,
+    }, { status: 201 });
+  } catch (error) {
+    quotaReservation.release();
+    throw error;
   }
-
-  if (!Number.isFinite(fileSize) || fileSize <= 0) {
-    throw new HttpError(400, "File size must be greater than 0 bytes.");
-  }
-
-  if (fileSize >= getUploadLimitBytes()) {
-    throw new HttpError(413, `File must be smaller than ${apiConfig.maxUploadSizeMb} MB.`);
-  }
-
-  if (!Number.isFinite(encryptedSize) || encryptedSize <= 0) {
-    throw new HttpError(400, "Encrypted file size must be greater than 0 bytes.");
-  }
-
-  if (
-    expirySeconds < apiConfig.minExpirySeconds ||
-    expirySeconds > apiConfig.maxExpirySeconds
-  ) {
-    throw new HttpError(
-      400,
-      `Expiry must be between ${apiConfig.minExpirySeconds} and ${apiConfig.maxExpirySeconds} seconds.`,
-    );
-  }
-
-  const expiresAt = new Date(Date.now() + expirySeconds * 1000);
-  const transfer = await createTransferRecord({
-    shareToken,
-    objectKey,
-    originalFilename,
-    contentType,
-    encryptionKey,
-    fileSize,
-    encryptedSize,
-    expiresAt,
-  });
-
-  return json({
-    ...serializeTransferResponse(transfer, getApiBaseUrl(request), {
-      deliveryMode: "client-decrypt",
-    }),
-    expirySeconds,
-  }, { status: 201 });
 };
 
 const handleGetTransfer = async (request, shareToken) => {
@@ -295,10 +318,19 @@ const getFileRouteParts = (pathname) => {
     .map((value) => decodeURIComponent(value));
 };
 
+const normalizeApiPathname = (pathname) => {
+  if (pathname.startsWith("/.netlify/functions/api")) {
+    const normalized = pathname.replace(/^\/\.netlify\/functions\/api/, "");
+    return normalized || "/";
+  }
+
+  return pathname;
+};
+
 export default async (request) => {
   try {
     const url = new URL(request.url);
-    const { pathname } = url;
+    const pathname = normalizeApiPathname(url.pathname);
     const method = request.method.toUpperCase();
 
     if (method === "GET" && pathname === "/api/health") {

@@ -6,9 +6,14 @@
   NODE_VERSION = "24"
 
 [functions]
-  directory = "netlify/functions"
+  directory = "frontend/netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["mongoose", "@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-request-presigner"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
 
 [[redirects]]
   from = "/*"

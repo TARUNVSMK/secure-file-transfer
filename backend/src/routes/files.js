@@ -7,7 +7,11 @@ import { apiConfig, getMissingRuntimeConfig } from "../config.js";
 import { decryptStreamToFile, encryptFileToFile } from "../lib/encryption.js";
 import { HttpError } from "../lib/errors.js";
 import { toTransferResponse } from "../lib/transferResponses.js";
-import { uploadLimiter } from "../middleware/rateLimiters.js";
+import {
+  uploadConcurrencyLimiter,
+  uploadLimiter,
+  uploadQuotaLimiter,
+} from "../middleware/rateLimiters.js";
 import {
   createTransferRecord,
   deleteTransferRecord,
@@ -102,6 +106,8 @@ const getActiveTransfer = async (shareToken) => {
 router.post(
   "/upload",
   uploadLimiter,
+  uploadQuotaLimiter,
+  uploadConcurrencyLimiter,
   upload.single("file"),
   asyncHandler(async (request, response) => {
     assertRuntimeReady();

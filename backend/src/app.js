@@ -53,10 +53,16 @@ app.get("/api/health", (_request, response) => {
     maxExpirySeconds: apiConfig.maxExpirySeconds,
     defaultExpirySeconds: apiConfig.defaultExpirySeconds,
     cleanupIntervalSeconds: apiConfig.cleanupIntervalSeconds,
+    uploadQuotaWindowMs: apiConfig.uploadQuotaWindowMs,
+    uploadQuotaMaxPerIp: apiConfig.uploadQuotaMaxPerIp,
+    concurrentUploadLimitPerIp: apiConfig.concurrentUploadLimitPerIp,
+    concurrentUploadCooldownMs: apiConfig.concurrentUploadCooldownMs,
     allowLocalFallback: apiConfig.allowLocalFallback,
     capabilities: {
       directUpload: false,
       browserDecryption: false,
+      uploadQuotaProtection: true,
+      uploadConcurrencyProtection: true,
     },
   });
 });
