@@ -329,11 +329,12 @@ It does **not** expose the encryption key.
 
 ### Cleanup flow
 
-1. cleanup job runs every `CLEANUP_INTERVAL_SECONDS`
+1. cleanup job runs every `CLEANUP_INTERVAL_SECONDS` in the long-running Node server and every minute on Netlify scheduled functions
 2. expired transfers are located
 3. storage object is removed
 4. metadata record is deleted
 5. expired links are also purged on access if a user hits them before the scheduled cleanup
+6. Netlify API traffic also triggers a throttled best-effort cleanup pass between scheduled runs
 
 ---
 

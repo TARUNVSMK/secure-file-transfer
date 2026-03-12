@@ -7,6 +7,8 @@ import {
 import { removeStoredObject } from "./runtimeStorage.js";
 
 let cleanupTimer = null;
+let cleanupInFlight = null;
+let lastCleanupStartedAt = 0;
 
 export const purgeExpiredTransfer = async (transfer) => {
   await removeStoredObject(transfer.objectKey);
@@ -31,6 +33,36 @@ export const cleanupExpiredTransfers = async () => {
   return deletedCount;
 };
 
+export const runExpiredTransferCleanupIfDue = async ({
+  now = Date.now(),
+  runner = cleanupExpiredTransfers,
+} = {}) => {
+  if (cleanupInFlight) {
+    return cleanupInFlight;
+  }
+
+  const cleanupStartedAt =
+    now instanceof Date ? now.getTime() : Number.isFinite(Number(now)) ? Number(now) : Date.now();
+  const intervalMs = apiConfig.cleanupIntervalSeconds * 1000;
+
+  if (lastCleanupStartedAt && cleanupStartedAt - lastCleanupStartedAt < intervalMs) {
+    return null;
+  }
+
+  lastCleanupStartedAt = cleanupStartedAt;
+  cleanupInFlight = Promise.resolve()
+    .then(() => runner(new Date(cleanupStartedAt)))
+    .catch((error) => {
+      lastCleanupStartedAt = 0;
+      throw error;
+    })
+    .finally(() => {
+      cleanupInFlight = null;
+    });
+
+  return cleanupInFlight;
+};
+
 export const startExpiredTransferCleanup = () => {
   if (cleanupTimer) {
     return;
@@ -44,4 +76,14 @@ export const startExpiredTransferCleanup = () => {
   }, intervalMs);
 
   cleanupTimer.unref?.();
+};
+
+export const resetExpiredTransferCleanupState = () => {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer);
+    cleanupTimer = null;
+  }
+
+  cleanupInFlight = null;
+  lastCleanupStartedAt = 0;
 };

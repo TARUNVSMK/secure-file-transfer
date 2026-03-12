@@ -353,6 +353,7 @@ Typical production behavior on Netlify:
 - frontend is served from `frontend/dist`
 - API routes are handled by `netlify/functions/api.js`
 - encrypted upload can happen in the browser before direct object-storage upload
+- expired transfers are swept by a scheduled function every minute and also cleaned opportunistically on API traffic
 
 ### Render / traditional Node hosting
 

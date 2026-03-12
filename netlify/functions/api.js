@@ -11,7 +11,10 @@ import {
   findTransferByShareToken,
   recordTransferDownload,
 } from "../../backend/src/repositories/transferRepository.js";
-import { purgeExpiredTransfer } from "../../backend/src/services/expiredTransferCleanup.js";
+import {
+  purgeExpiredTransfer,
+  runExpiredTransferCleanupIfDue,
+} from "../../backend/src/services/expiredTransferCleanup.js";
 import {
   ensureUploadQuotaAvailable,
   reserveUploadQuotaSlot,
@@ -306,6 +309,18 @@ const handleRecordDownload = async (shareToken) => {
   });
 };
 
+const runBestEffortExpiredTransferCleanup = async () => {
+  if (getRuntimeMode() === "degraded") {
+    return;
+  }
+
+  try {
+    await runExpiredTransferCleanupIfDue();
+  } catch (error) {
+    console.error("Best-effort expired-transfer cleanup failed:", error.message ?? error);
+  }
+};
+
 const getFileRouteParts = (pathname) => {
   if (!pathname.startsWith("/api/files/")) {
     return null;
@@ -329,6 +344,8 @@ const normalizeApiPathname = (pathname) => {
 
 export default async (request) => {
   try {
+    await runBestEffortExpiredTransferCleanup();
+
     const url = new URL(request.url);
     const pathname = normalizeApiPathname(url.pathname);
     const method = request.method.toUpperCase();
